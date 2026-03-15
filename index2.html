@@ -38,7 +38,7 @@
                 status.innerText = "Loading CSV and calculating distances...";
                 
                 // 1. Fetch CSV
-                const response = await fetch('events.csv');
+                const response = await fetch('./events.csv');
                 debugger;
                 const csvText = await response.text();
                 
