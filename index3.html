@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GitHub Event Navigator</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        #map { height: 400px; width: 100%; border-bottom: 2px solid #ddd; }
+        .container { padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; overflow-y: auto; }
+        .card { background: #f9f9f9; padding: 15px; border-radius: 8px; border: 1px solid #ddd; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        th, td { text-align: left; padding: 8px; border-bottom: 1px solid #eee; }
+        input, button { padding: 8px; margin: 4px 0; }
+        .btn-add { background: #28a745; color: white; border: none; cursor: pointer; }
+        .btn-del { background: #dc3545; color: white; border: none; cursor: pointer; padding: 4px 8px; }
+        .closest-item { background: #e7f3ff; margin: 5px 0; padding: 10px; border-radius: 4px; border-left: 4px solid #007bff; }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="container">
+    <div class="card">
+        <h3>Add New Event</h3>
+        <input type="text" id="name" placeholder="Event Name">
+        <input type="text" id="pc" placeholder="Postcode (e.g. SW1A 1AA)">
+        <input type="date" id="date">
+        <button class="btn-add" onclick="addEvent()">Save to GitHub</button>
+        
+        <h3>All Events</h3>
+        <table>
+            <thead><tr><th>Name</th><th>Postcode</th><th>Date</th><th></th></tr></thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3>Closest 3 Events (Road Distance)</h3>
+        <button onclick="findNearest()">Find Nearest to Me</button>
+        <div id="results">Allow location access and click the button.</div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    // --- CONFIGURATION ---
+    const config = {
+        token: 'YOUR_GITHUB_TOKEN', // Generate in GitHub Settings > Developer Settings
+        owner: 'YOUR_USERNAME',
+        repo: 'YOUR_REPO_NAME',
+        path: 'events.json',
+        sha: '' // Will be fetched automatically
+    };
+
+    let events = [];
+    let userCoords = null;
+    let map = L.map('map').setView([54.5, -3], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    // 1. LOAD EVENTS FROM GITHUB
+    async function loadFromGitHub() {
+        const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${config.path}`;
+        try {
+            const res = await fetch(url, { headers: { Authorization: `token ${config.token}` } });
+            const data = await res.json();
+            config.sha = data.sha;
+            events = JSON.parse(atob(data.content));
+            renderTable();
+        } catch (e) { alert("Error loading data. Check your Token and Repo details."); }
+    }
+
+    // 2. SAVE TO GITHUB (Create/Delete calls this)
+    async function saveToGitHub() {
+        const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${config.path}`;
+        const content = btoa(JSON.stringify(events, null, 2));
+        
+        const res = await fetch(url, {
+            method: 'PUT',
+            headers: { Authorization: `token ${config.token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: "Update events.json", content, sha: config.sha })
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            config.sha = data.content.sha; // Update SHA for next operation
+            renderTable();
+            alert("Updated successfully!");
+        }
+    }
+
+    function addEvent() {
+        const name = document.getElementById('name').value;
+        const postcode = document.getElementById('pc').value;
+        const date = document.getElementById('date').value;
+        if (!name || !postcode) return;
+        events.push({ name, postcode, date });
+        saveToGitHub();
+    }
+
+    function deleteEvent(index) {
+        events.splice(index, 1);
+        saveToGitHub();
+    }
+
+    function renderTable() {
+        document.getElementById('tableBody').innerHTML = events.map((ev, i) => `
+            <tr>
+                <td>${ev.name}</td>
+                <td>${ev.postcode}</td>
+                <td>${ev.date}</td>
+                <td><button class="btn-del" onclick="deleteEvent(${i})">X</button></td>
+            </tr>
+        `).join('');
+    }
+
+    // 3. FIND NEAREST USING OSRM & POSTCODES.IO
+    async function findNearest() {
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+            userCoords = [pos.coords.longitude, pos.coords.latitude];
+            L.marker([pos.coords.latitude, pos.coords.longitude]).addTo(map).bindPopup("You").openPopup();
+
+            // Geocode all UK postcodes in one batch
+            const pcRes = await fetch('https://api.postcodes.io/postcodes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ postcodes: events.map(e => e.postcode) })
+            });
+            const pcData = await pcRes.json();
+
+            let coordStr = `${userCoords[0]},${userCoords[1]}`;
+            let validEvents = [];
+
+            pcData.result.forEach((r, i) => {
+                if (r.result) {
+                    coordStr += `;${r.result.longitude},${r.result.latitude}`;
+                    validEvents.push({ ...events[i], lat: r.result.latitude, lon: r.result.longitude });
+                }
+            });
+
+            // Calculate Road Distance via OSRM
+            const osrmRes = await fetch(`https://router.project-osrm.org/table/v1/driving/${coordStr}?sources=0&annotations=distance`);
+            const osrmData = await osrmRes.json();
+            const distances = osrmData.distances[0].slice(1);
+
+            const sorted = validEvents.map((ev, i) => ({ ...ev, roadDist: distances[i] }))
+                                      .sort((a, b) => a.roadDist - b.roadDist)
+                                      .slice(0, 3);
+
+            const resDiv = document.getElementById('results');
+            resDiv.innerHTML = "<h4>3 Closest Events:</h4>";
+            sorted.forEach(ev => {
+                const miles = (ev.roadDist / 1609.34).toFixed(1);
+                resDiv.innerHTML += `<div class="closest-item"><b>${ev.name}</b><br>🚗 ${miles} miles away</div>`;
+                L.marker([ev.lat, ev.lon]).addTo(map).bindPopup(ev.name);
+            });
+            map.flyTo([sorted[0].lat, sorted[0].lon], 8);
+        });
+    }
+
+    loadFromGitHub();
+</script>
+
+</body>
+</html>
