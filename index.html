@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Town Locator Map</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #map { height: 500px; width: 100%; margin-top: 20px; border-radius: 8px; border: 1px solid #ccc; }
+        .controls { margin-bottom: 10px; }
+        input { padding: 10px; width: 250px; border: 1px solid #ddd; border-radius: 4px; }
+        button { padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #218838; }
+    </style>
+</head>
+<body>
+
+    <h2>Town Locator</h2>
+    <div class="controls">
+        <input type="text" id="townInput" placeholder="Enter town or city name...">
+        <button id="searchBtn">Locate on Map</button>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // 1. Initialize the Map (Default view: London)
+        const map = L.map('map').setView([51.505, -0.09], 13);
+
+        // 2. Add OpenStreetMap Tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let currentMarker; // Variable to track the marker
+
+        // 3. The Function to get Coordinates and Update Map
+        async function locateTown() {
+            const town = document.getElementById('townInput').value;
+            const apiKey = 'ebb013dbb7c3742ebcd9e3fb9bfe2be6'; 
+            
+            if (!town) return alert("Please enter a name");
+
+            // OpenWeather Geocoding URL
+            const url = `https://api.openweathermap.org/geo/1.0/direct?q=${town}&limit=1&appid=${apiKey}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.length > 0) {
+                	
+                    const { lat, lon, name, state, country } = data[0];
+
+                    // Move the map to the new coordinates
+                    map.setView([lat, lon], 12);
+                    
+                    // Format longitude and latitude for display - 2 decimal points
+                    displayLat = lat.toFixed(2);
+                    displayLon = lon.toFixed(2);
+                    
+                    // Format whole latitude message
+                    if (displayLat >=0){
+                    	displayLat = displayLat + " degrees North";
+                    }
+                    else
+                    {
+                    	displayLat = Math.abs(displayLat) + "degrees South";
+                    }
+                    
+                    if (displayLon >=0){
+                    	displayLon = displayLon + " degrees East";
+                    }
+                    else
+                    {
+                    	displayLon = Math.abs(displayLon) + "degrees West";
+                    }
+
+					// Format whole message
+					locationMessage = "<br>" + displayLat + "<br>" + displayLon;
+
+                    // Remove old marker if it exists
+                    if (currentMarker) map.removeLayer(currentMarker);
+
+                    // Add a new marker with a popup
+                    currentMarker = L.marker([lat, lon]).addTo(map)
+                        .bindPopup(`<b>${name}</b><br>${state ? state + ', ' : ''}${country}${locationMessage}`)
+                        .openPopup();
+                } else {
+                    alert("Location not found. Check the spelling or your API key.");
+                }
+            } catch (error) {
+                console.error("Error fetching location:", error);
+                alert("An error occurred while fetching data.");
+            }
+        }
+
+        // 4. Event Listeners
+        document.getElementById('searchBtn').addEventListener('click', locateTown);
+        
+        // Trigger search on "Enter" key
+        document.getElementById('townInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') locateTown();
+        });
+    </script>
+
+</body>
+</html>
