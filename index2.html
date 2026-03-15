@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Closest Events Finder</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map { height: 500px; width: 100%; margin-top: 20px; }
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+        .event-list { margin-top: 20px; }
+        .event-item { border-bottom: 1px solid #ccc; padding: 10px 0; }
+    </style>
+</head>
+<body>
+
+    <h2>5 Closest Events to You</h2>
+    <button onclick="findEvents()">Find My Location & Events</button>
+    <div id="status"></div>
+    <div id="map"></div>
+    <div id="results" class="event-list"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+
+    <script>
+        let map = L.map('map').setView([54.5, -3], 6);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        async function findEvents() {
+            const status = document.getElementById('status');
+            status.innerText = "Locating you...";
+
+            navigator.geolocation.getCurrentPosition(async (pos) => {
+                const myLat = pos.coords.latitude;
+                const myLng = pos.coords.longitude;
+                
+                status.innerText = "Loading CSV and calculating distances...";
+                
+                // 1. Fetch CSV
+                const response = await fetch('events.csv');
+                const csvText = await response.text();
+                
+                // 2. Parse CSV
+                const data = Papa.parse(csvText, { header: true }).data;
+
+                // 3. Process Events
+                const processedEvents = await Promise.all(data.map(async (event) => {
+                    if(!event.postcode) return null;
+                    
+                    // Convert Postcode to Lat/Lng via API
+                    const geoRes = await fetch(`https://api.postcodes.io/postcodes/${event.postcode.replace(/\s/g, '')}`);
+                    const geoData = await geoRes.json();
+                    
+                    if(geoData.status === 200) {
+                        const dist = calculateDistance(myLat, myLng, geoData.result.latitude, geoData.result.longitude);
+                        return { ...event, lat: geoData.result.latitude, lng: geoData.result.longitude, distance: dist };
+                    }
+                    return null;
+                }));
+
+                // 4. Sort and Filter
+                const closest = processedEvents
+                    .filter(e => e !== null)
+                    .sort((a, b) => a.distance - b.distance)
+                    .slice(0, 5);
+
+                displayResults(closest, myLat, myLng);
+            });
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 3958.8; // Radius of Earth in miles
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        function displayResults(events, myLat, myLng) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = "";
+            map.setView([myLat, myLng], 10);
+
+            L.marker([myLat, myLng]).addTo(map).bindPopup("<b>You are here</b>").openPopup();
+
+            events.forEach(event => {
+                // Add to List
+                resultsDiv.innerHTML += `
+                    <div class="event-item">
+                        <strong>${event.title}</strong><br>
+                        ${event.postcode} - ${event.distance.toFixed(2)} miles away
+                    </div>`;
+                
+                // Add to Map
+                L.marker([event.lat, event.lng]).addTo(map)
+                    .bindPopup(`<b>${event.title}</b><br>${event.distance.toFixed(2)} miles away`);
+            });
+            document.getElementById('status').innerText = "Found top 5 closest events.";
+        }
+    </script>
+</body>
+</html>
