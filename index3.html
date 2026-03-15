@@ -60,7 +60,7 @@
 
     // 1. LOAD EVENTS FROM GITHUB
     async function loadFromGitHub() {
-        const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${config.path}`;
+        const url = `https://api.github.com/repos/owenk777/mapstuff/contents/events.json`;
         try {
             const res = await fetch(url, { headers: { Authorization: `token ${config.token}` } });
             const data = await res.json();
@@ -72,6 +72,7 @@
 
     // 2. SAVE TO GITHUB (Create/Delete calls this)
     async function saveToGitHub() {
+        // const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${config.path}`;
         const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${config.path}`;
         const content = btoa(JSON.stringify(events, null, 2));
         
