@@ -2,7 +2,7 @@ name: Deploy to InfinityFree
 on:
   push:
     branches:
-      - main  # This triggers the deploy whenever you push to 'main'
+      - main
 
 jobs:
   web-deploy:
@@ -18,7 +18,9 @@ jobs:
         server: ${{ secrets.FTP_SERVER }}
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
-        server-dir: htdocs/ # InfinityFree requires files to be inside htdocs
+        # 1. Ensure this points exactly to htdocs/
+        server-dir: htdocs/ 
+        # 2. Exclude folders that InfinityFree will reject
         exclude: |
           **/.git*
           **/.git*/**
