@@ -18,11 +18,16 @@ jobs:
         server: ${{ secrets.FTP_SERVER }}
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
-        # 1. Ensure this points exactly to htdocs/
-        server-dir: htdocs/ 
-        # 2. Exclude folders that InfinityFree will reject
+        # Explicitly tell it to sync from the root of your repo
+        local-dir: ./
+        # Use a dot-slash to ensure it targets the correct remote path
+        server-dir: ./htdocs/
+        # Be extremely aggressive with excludes
         exclude: |
           **/.git*
           **/.git*/**
+          **/.github*
+          **/.github*/**
           **/node_modules/**
-          .github/**
+          README.md
+          .gitignore
